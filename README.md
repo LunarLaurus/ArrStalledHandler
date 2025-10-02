@@ -54,7 +54,9 @@ The script is fully configurable using environment variables specified in a `.en
 | `VERBOSE`                               | Enable verbose logging for debugging (`true` or `false`).                                       | `false`                |
 | `RUN_INTERVAL`                          | Time (in seconds) between script executions when running in Docker.                             | `300` (5 minutes)      |
 | `COUNT_DOWNLOADING_METADATA_AS_STALLED` | Whether the script should count downloads with the status of "Downloading Metadata" as stalled. | `false`                |
+| `DOWNLOADING_METADATA_TIMEOUT`          | Time (in seconds) stalled metadata must remain stalled before actions are taken.                | `STALLED_TIMEOUT`      |
 | `COUNT_IMPORT_FAILURE_AS_STALLED`       | Handle "No files found are eligible for import" in clients as stalled.                          | `false`                |
+| `IMPORT_FAILURE_TIMEOUT`                | Time (in seconds) a failed import must remain stalled before actions are taken.                 | `STALLED_TIMEOUT`      |
 
 To disable Radarr or Sonarr; leave the URL empty in the environment. If the service does not have a URL, then it is skipped. Multple services are allowed by using comma seperated values.
 
@@ -129,6 +131,8 @@ services:
       RUN_INTERVAL: "300"
       COUNT_DOWNLOADING_METADATA_AS_STALLED: "false"
       COUNT_IMPORT_FAILURE_AS_STALLED: "false"
+      DOWNLOADING_METADATA_TIMEOUT: "1800"
+      IMPORT_FAILURE_TIMEOUT: "900"
 ```
 
 **Docker CLI**
@@ -153,13 +157,15 @@ docker run -d \
   -e RUN_INTERVAL=300 \
   -e COUNT_DOWNLOADING_METADATA_AS_STALLED=false \
   -e COUNT_IMPORT_FAILURE_AS_STALLED=false \
+  -e DOWNLOADING_METADATA_TIMEOUT: "1800" \
+  -e IMPORT_FAILURE_TIMEOUT: "900" \
   --restart unless-stopped \
   tommythebeast/arrstalledhandler:latest
 ```
 
 *One line:*
 ``` bash
-docker run -d --name=ArrStalledHandler -e RADARR_URL=http://localhost:7878,http://otherhost:7878 -e RADARR_API_KEY=your_radarr_api_key,your_2nd_radarr_api_key -e SONARR_URL=http://localhost:8989,http://otherhost:8989 -e SONARR_API_KEY=your_sonarr_api_key,your_2nd_sonarr_api_key -e LIDARR_URL=http://localhost:8686,http://otherhost:8686  -e LIDARR_API_KEY=your_lidarr_api_key,your_2nd_lidarr_api_key -e READARR_URL=http://localhost:8787,http://otherhost:8787 -e READARR_API_KEY=your_readarr_api_key,our_2nd_readarr_api_key -e STALLED_TIMEOUT=3600 -e STALLED_ACTION=BLOCKLIST_AND_SEARCH -e VERBOSE=false -e RUN_INTERVAL=300 -e COUNT_DOWNLOADING_METADATA_AS_STALLED=false -e COUNT_IMPORT_FAILURE_AS_STALLED=false --restart unless-stopped tommythebeast/arrstalledhandler:latest
+docker run -d --name=ArrStalledHandler -e RADARR_URL=http://localhost:7878,http://otherhost:7878 -e RADARR_API_KEY=your_radarr_api_key,your_2nd_radarr_api_key -e SONARR_URL=http://localhost:8989,http://otherhost:8989 -e SONARR_API_KEY=your_sonarr_api_key,your_2nd_sonarr_api_key -e LIDARR_URL=http://localhost:8686,http://otherhost:8686  -e LIDARR_API_KEY=your_lidarr_api_key,your_2nd_lidarr_api_key -e READARR_URL=http://localhost:8787,http://otherhost:8787 -e READARR_API_KEY=your_readarr_api_key,our_2nd_readarr_api_key -e STALLED_TIMEOUT=3600 -e STALLED_ACTION=BLOCKLIST_AND_SEARCH -e VERBOSE=false -e RUN_INTERVAL=300 -e COUNT_DOWNLOADING_METADATA_AS_STALLED=false -e COUNT_IMPORT_FAILURE_AS_STALLED=false -e DOWNLOADING_METADATA_TIMEOUT=1800 -e IMPORT_FAILURE_TIMEOUT=900 --restart unless-stopped tommythebeast/arrstalledhandler:latest
 ```
 
 ### Docker Deployment (Manual)
@@ -190,6 +196,8 @@ docker run -d --name=ArrStalledHandler -e RADARR_URL=http://localhost:7878,http:
     RUN_INTERVAL=300
     COUNT_DOWNLOADING_METADATA_AS_STALLED=false
     COUNT_IMPORT_FAILURE_AS_STALLED=false
+    DOWNLOADING_METADATA_TIMEOUT=1800
+    IMPORT_FAILURE_TIMEOUT=900
     ```
 
 3.  **Build the Docker Image**:
@@ -239,6 +247,8 @@ docker run -d --name=ArrStalledHandler -e RADARR_URL=http://localhost:7878,http:
     RUN_INTERVAL=300
     COUNT_DOWNLOADING_METADATA_AS_STALLED=false
     COUNT_IMPORT_FAILURE_AS_STALLED=false
+    DOWNLOADING_METADATA_TIMEOUT=1800
+    IMPORT_FAILURE_TIMEOUT=900
     ```
         
 4.  **Run the Script**:

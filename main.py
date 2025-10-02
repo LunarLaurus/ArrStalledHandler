@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import requests
+from typing import List
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 import time
@@ -9,31 +10,80 @@ import logging
 # Load environment variables
 load_dotenv()
 
-# Declare early to use after
-def split_env(var_name):
-    """Get an environment variable and split by comma if set, otherwise return []."""
-    value = os.getenv(var_name)
-    return value.split(",") if value else []
+def env_get_list(key: str, sep: str = ",") -> List[str]:
+    """
+    Get an environment variable as a list.
+    Splits on `sep` if set, otherwise returns an empty list.
+    """
+    value = os.getenv(key, "")
+    return [v.strip() for v in value.split(sep) if v.strip()] if value else []
+
+
+def env_get_bool(key: str, default: bool = False) -> bool:
+    """
+    Get an environment variable as a boolean.
+    Accepts case-insensitive "true" or "false".
+    """
+    return os.getenv(key, str(default)).strip().lower() == "true"
+
+
+def env_get_int(key: str, default: int) -> int:
+    """
+    Get an environment variable as an integer.
+    Falls back to `default` on missing or invalid values.
+    """
+    value = os.getenv(key)
+    try:
+        return int(value) if value is not None else default
+    except ValueError:
+        return default
+    
+def env_get_choice(key: str, default: str, *, choices: List[str]) -> str:
+    val = os.getenv(key, default).strip().upper()
+    choices_upper = [c.upper() for c in choices]
+    if val not in choices_upper:
+        logging.warning(f"Invalid value '{val}' for {key}, using default '{default}'")
+        return default
+    return val
 
 # Configuration from .env
-RADARR_URL = split_env("RADARR_URL")
-RADARR_API_KEY = split_env("RADARR_API_KEY")
-SONARR_URL = split_env("SONARR_URL")
-SONARR_API_KEY = split_env("SONARR_API_KEY")
-LIDARR_URL = split_env("LIDARR_URL")
-LIDARR_API_KEY = split_env("LIDARR_API_KEY")
-READARR_URL = split_env("READARR_URL")
-READARR_API_KEY = split_env("READARR_API_KEY")
+RADARR_URL = env_get_list("RADARR_URL")
+RADARR_API_KEY = env_get_list("RADARR_API_KEY")
+SONARR_URL = env_get_list("SONARR_URL")
+SONARR_API_KEY = env_get_list("SONARR_API_KEY")
+LIDARR_URL = env_get_list("LIDARR_URL")
+LIDARR_API_KEY = env_get_list("LIDARR_API_KEY")
+READARR_URL = env_get_list("READARR_URL")
+READARR_API_KEY = env_get_list("READARR_API_KEY")
 
 # Other configurations
-STALLED_TIMEOUT = int(os.getenv("STALLED_TIMEOUT", 3600))
-STALLED_ACTION = os.getenv("STALLED_ACTION", "BLOCKLIST_AND_SEARCH").upper()
-VERBOSE = os.getenv("VERBOSE", "false").lower() == "true"
-RUN_INTERVAL = int(os.getenv("RUN_INTERVAL", 300))
-COUNT_DOWNLOADING_METADATA_AS_STALLED = os.getenv("COUNT_DOWNLOADING_METADATA_AS_STALLED", "false").lower() == "true"
-COUNT_IMPORT_FAILURE_AS_STALLED = os.getenv("COUNT_IMPORT_FAILURE_AS_STALLED", "false").lower() == "true"
+DB_FILE = os.getenv("DB_FILE", "stalled_downloads.db")
+VERBOSE = env_get_bool("VERBOSE", False)
+RUN_INTERVAL = env_get_int("RUN_INTERVAL", 300)
+STALLED_TIMEOUT = env_get_int("STALLED_TIMEOUT", 3600)
+STALLED_ACTION = env_get_choice(
+    "STALLED_ACTION",
+    "BLOCKLIST_AND_SEARCH",
+    choices=["BLOCKLIST_AND_SEARCH", "BLOCKLIST", "REMOVE"]
+)
 
-DB_FILE = "stalled_downloads.db"
+# Feature: count downloading metadata as stalled
+COUNT_DOWNLOADING_METADATA_AS_STALLED = env_get_bool(
+    "COUNT_DOWNLOADING_METADATA_AS_STALLED", False
+)
+DOWNLOADING_METADATA_TIMEOUT = (
+    env_get_int("DOWNLOADING_METADATA_TIMEOUT", STALLED_TIMEOUT)
+    if COUNT_DOWNLOADING_METADATA_AS_STALLED else STALLED_TIMEOUT
+)
+# Feature: count import failure as stalled
+COUNT_IMPORT_FAILURE_AS_STALLED = env_get_bool(
+    "COUNT_IMPORT_FAILURE_AS_STALLED", False
+)
+IMPORT_FAILURE_TIMEOUT = (
+    env_get_int("IMPORT_FAILURE_TIMEOUT", STALLED_TIMEOUT)
+    if COUNT_IMPORT_FAILURE_AS_STALLED else STALLED_TIMEOUT
+)
+
 
 # Configure logging
 logging.basicConfig(
@@ -161,7 +211,7 @@ def detect_stuck_metadata_downloads(base_url, api_key, service_name, api_version
             download_id = str(item["id"])
             movie_id = item.get("movieId") if service_name == "Radarr" else None
             episode_ids = [item["episodeId"]] if service_name == "Sonarr" and "episodeId" in item else None
-            handle_download(download_id, service_name, detected_metadata_downloads, base_url, headers, movie_id, api_version, episode_ids)
+            handle_download(DOWNLOADING_METADATA_TIMEOUT, download_id, service_name, detected_metadata_downloads, base_url, headers, movie_id, api_version, episode_ids)
 
 def detect_failed_imports(base_url, api_key, service_name, api_version):
     """
@@ -208,7 +258,7 @@ def detect_failed_imports(base_url, api_key, service_name, api_version):
             download_id = str(item["id"])
             movie_id = item.get("movieId") if service_name == "Radarr" else None
             episode_ids = [item["episodeId"]] if service_name == "Sonarr" and "episodeId" in item else None            
-            handle_download(download_id, service_name, stalled_downloads, base_url, headers, movie_id, api_version, episode_ids)
+            handle_download(IMPORT_FAILURE_TIMEOUT, download_id, service_name, stalled_downloads, base_url, headers, movie_id, api_version, episode_ids)
 
 def query_api_paginated(base_url, headers, params=None, page_size=50):
     """Query an API endpoint with pagination to retrieve all records."""
@@ -261,32 +311,29 @@ def perform_action(base_url, headers, download_id, movie_id, service_name, api_v
         "BLOCKLIST_AND_SEARCH": f"blocklist and search (ID: {download_id}, {'Episodes' if service_name == 'Sonarr' else 'Movie'}: {episode_ids if service_name == 'Sonarr' else movie_id})"
     }.get(STALLED_ACTION, "INVALID ACTION")
 
+    action_url = f"{base_url}/api/{api_version}/queue/{download_id}"
     if STALLED_ACTION == "REMOVE":
-        action_url = f"{base_url}/api/{api_version}/queue/{download_id}"
         logging.info(f"Performing action: {action_desc} in {service_name}...")
         delete_api(action_url, headers)
 
     elif STALLED_ACTION == "BLOCKLIST":
-        action_url = f"{base_url}/api/{api_version}/queue/{download_id}"
         params = {"blocklist": "true", "skipRedownload": "true"}
         logging.info(f"Performing action: {action_desc} in {service_name}...")
         delete_api(action_url, headers, params)
 
     elif STALLED_ACTION == "BLOCKLIST_AND_SEARCH":
         # Blocklist the item but allow redownload
-        action_url = f"{base_url}/api/{api_version}/queue/{download_id}"
         params = {"blocklist": "true", "skipRedownload": "false"}
         logging.info(f"Performing action: {action_desc} in {service_name}...")
         delete_api(action_url, headers, params)
 
         # Trigger a search via the Command API
+        command_url = f"{base_url}/api/{api_version}/command"
         if service_name == "Sonarr" and episode_ids:
-            command_url = f"{base_url}/api/{api_version}/command"
             data = {"name": "EpisodeSearch", "episodeIds": episode_ids}
             logging.info(f"Triggering search for Episodes {episode_ids} in {service_name} using Command API...")
             post_api(command_url, headers, data)
         elif service_name == "Radarr" and movie_id:
-            command_url = f"{base_url}/api/{api_version}/command"
             data = {"name": "MoviesSearch", "movieIds": [movie_id]}
             logging.info(f"Triggering search for Movie ID {movie_id} in {service_name} using Command API...")
             post_api(command_url, headers, data)
@@ -326,9 +373,10 @@ def handle_stalled_downloads(base_url, api_key, service_name, api_version):
             download_id = str(item["id"])
             movie_id = item.get("movieId") if service_name == "Radarr" else None
             episode_ids = [item["episodeId"]] if service_name == "Sonarr" and "episodeId" in item else None
-            handle_download(download_id, service_name, stalled_downloads, base_url, headers, movie_id, api_version, episode_ids)
+            handle_download(STALLED_TIMEOUT, download_id, service_name, stalled_downloads, base_url, headers, movie_id, api_version, episode_ids)
 
 def handle_download(
+    timeout,
     download_id,
     service_name,
     api_records,
@@ -343,7 +391,7 @@ def handle_download(
         first_detected = api_records[download_id]
         elapsed_time = (now - first_detected).total_seconds()
         logging.debug(f"Download ID {download_id} first detected: {first_detected}, elapsed: {elapsed_time} seconds.")
-        if elapsed_time > STALLED_TIMEOUT:
+        if elapsed_time > timeout:
             logging.info(
                 f"Handling stuck metadata download ID {download_id} in {service_name} "
                 f"(elapsed time: {elapsed_time} seconds)."
@@ -357,10 +405,6 @@ def handle_download(
         logging.info(f"Added metadata download ID {download_id} in {service_name} to the database.")
 
 def process_service(service_name, urls, api_keys, api_version, stuck_metadata=False, detect_failed=False):
-    if not urls or not api_keys:
-        logging.warning(f"Skipping {service_name}: URLs or API keys are not configured.")
-        return
-
     if len(urls) != len(api_keys):
         logging.error(f"Skipping {service_name}: Number of URLs ({len(urls)}) "
                       f"does not match number of API keys ({len(api_keys)}).")
