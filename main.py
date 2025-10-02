@@ -9,31 +9,27 @@ import logging
 # Load environment variables
 load_dotenv()
 
+# Declare early to use after
+def split_env(var_name):
+    """Get an environment variable and split by comma if set, otherwise return []."""
+    value = os.getenv(var_name)
+    return value.split(",") if value else []
+
 # Configuration from .env
-if os.getenv("RADARR_URL") is not None:
-    RADARR_URL = os.getenv("RADARR_URL").split(",")
-    RADARR_API_KEY = os.getenv("RADARR_API_KEY").split(",")
-else:
-    RADARR_URL = None
-if os.getenv("SONARR_URL") is not None:
-    SONARR_URL = os.getenv("SONARR_URL").split(",")
-    SONARR_API_KEY = os.getenv("SONARR_API_KEY").split(",")
-else:
-    SONARR_URL = None
-if os.getenv("LIDARR_URL") is not None:
-    LIDARR_URL = os.getenv("LIDARR_URL").split(",")
-    LIDARR_API_KEY = os.getenv("LIDARR_API_KEY").split(",")
-else:
-    LIDARR_URL = None
-if os.getenv("READARR_URL") is not None:
-    READARR_URL = os.getenv("READARR_URL").split(",")
-    READARR_API_KEY = os.getenv("READARR_API_KEY").split(",")
-else:
-    READARR_URL = None
+RADARR_URL = split_env("RADARR_URL")
+RADARR_API_KEY = split_env("RADARR_API_KEY")
+SONARR_URL = split_env("SONARR_URL")
+SONARR_API_KEY = split_env("SONARR_API_KEY")
+LIDARR_URL = split_env("LIDARR_URL")
+LIDARR_API_KEY = split_env("LIDARR_API_KEY")
+READARR_URL = split_env("READARR_URL")
+READARR_API_KEY = split_env("READARR_API_KEY")
+
+# Other configurations
 STALLED_TIMEOUT = int(os.getenv("STALLED_TIMEOUT", 3600))
 STALLED_ACTION = os.getenv("STALLED_ACTION", "BLOCKLIST_AND_SEARCH").upper()
 VERBOSE = os.getenv("VERBOSE", "false").lower() == "true"
-RUN_INTERVAL = int(os.getenv("RUN_INTERVAL", 300))  # Default to 300 seconds
+RUN_INTERVAL = int(os.getenv("RUN_INTERVAL", 300))
 COUNT_DOWNLOADING_METADATA_AS_STALLED = os.getenv("COUNT_DOWNLOADING_METADATA_AS_STALLED", "false").lower() == "true"
 COUNT_IMPORT_FAILURE_AS_STALLED = os.getenv("COUNT_IMPORT_FAILURE_AS_STALLED", "false").lower() == "true"
 
@@ -367,20 +363,26 @@ def handle_download(
         logging.info(f"Added metadata download ID {download_id} in {service_name} to the database.")
 
 def process_service(service_name, urls, api_keys, api_version, stuck_metadata=False, detect_failed=False):
-    if not urls:
+    if not urls or not api_keys:
+        logging.warning(f"Skipping {service_name}: URLs or API keys are not configured.")
+        return
+
+    if len(urls) != len(api_keys):
+        logging.error(f"Skipping {service_name}: Number of URLs ({len(urls)}) "
+                      f"does not match number of API keys ({len(api_keys)}).")
         return
 
     for count, (url, api_key) in enumerate(zip(urls, api_keys)):
         instance_name = f"{service_name}{count}"
-        handle_stalled_downloads(url, api_key, instance_name, api_version)
+        handle_stalled_downloads(url, api_key, service_name, api_version)
         if stuck_metadata:
-            detect_stuck_metadata_downloads(url, api_key, instance_name, api_version)
-        else :
-            logging.debug(f"Skipping 'Downloading Metadata' detection for {service_name} (disabled).")
+            detect_stuck_metadata_downloads(url, api_key, service_name, api_version)
+        else:
+            logging.debug(f"Skipping 'Downloading Metadata' detection for {instance_name} (disabled).")
         if detect_failed:
-            detect_failed_imports(url, api_key, instance_name, api_version)
-        else :
-            logging.debug(f"Skipping 'Import Failure' detection for {service_name} (disabled).")
+            detect_failed_imports(url, api_key, service_name, api_version)
+        else:
+            logging.debug(f"Skipping 'Import Failure' detection for {instance_name} (disabled).")
 
 if __name__ == "__main__":
     try:
@@ -390,7 +392,6 @@ if __name__ == "__main__":
             count_downloading_metadata_as_stalled = os.getenv("COUNT_DOWNLOADING_METADATA_AS_STALLED", "false").lower() == "true"
             count_import_failure_as_stalled = os.getenv("COUNT_IMPORT_FAILURE_AS_STALLED", "false").lower() == "true"
 
-            # Define service configurations
             services = [
                 ("Radarr", RADARR_URL, RADARR_API_KEY, "v3"),
                 ("Sonarr", SONARR_URL, SONARR_API_KEY, "v3"),
@@ -399,6 +400,9 @@ if __name__ == "__main__":
             ]
             # Process each service
             for service_name, urls, api_keys, api_version in services:
+                if not urls or not api_keys:
+                    logging.debug(f"Skipping {service_name}: not configured.")
+                    continue
                 process_service(service_name, urls, api_keys, api_version, count_downloading_metadata_as_stalled, count_import_failure_as_stalled)
 
             logging.info(f"Script execution completed. Sleeping for {RUN_INTERVAL} seconds...")
