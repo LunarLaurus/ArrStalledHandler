@@ -171,7 +171,7 @@ def detect_failed_imports(base_url, api_key, service_name, api_version):
     # Query parameters for metadata detection
     params = {
         "protocol": "torrent",
-        "status": "complete",
+        "status": "completed",
         "includeEpisode": "true" if service_name == "Sonarr" else "false"
     }
 
