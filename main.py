@@ -394,15 +394,15 @@ def handle_download(
         if elapsed_time > timeout:
             logging.info(
                 f"Handling stuck metadata download ID {download_id} in {service_name} "
-                f"(elapsed time: {elapsed_time} seconds)."
+                f"(elapsed time: {elapsed_time}/{timeout} seconds)."
             )
             perform_action(base_url, headers, download_id, movie_id, service_name, api_version, episode_ids)
             remove_stalled_download_from_db(download_id, service_name)
         else:
-            logging.info(f"Metadata download ID {download_id} in {service_name} is within timeout period ({elapsed_time} seconds).")
+            logging.info(f"Metadata download ID {download_id} in {service_name} is within timeout period ({elapsed_time}/{timeout} seconds).")
     else:
         add_stalled_download_to_db(download_id, now, service_name)
-        logging.info(f"Added metadata download ID {download_id} in {service_name} to the database.")
+        logging.info(f"Added metadata download ID {download_id} in {service_name} to the database. ({timeout}s timeout)")
 
 def process_service(service_name, urls, api_keys, api_version, stuck_metadata=False, detect_failed=False):
     if len(urls) != len(api_keys):
