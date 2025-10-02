@@ -35,6 +35,7 @@ STALLED_ACTION = os.getenv("STALLED_ACTION", "BLOCKLIST_AND_SEARCH").upper()
 VERBOSE = os.getenv("VERBOSE", "false").lower() == "true"
 RUN_INTERVAL = int(os.getenv("RUN_INTERVAL", 300))  # Default to 300 seconds
 COUNT_DOWNLOADING_METADATA_AS_STALLED = os.getenv("COUNT_DOWNLOADING_METADATA_AS_STALLED", "false").lower() == "true"
+COUNT_IMPORT_FAILURE_AS_STALLED = os.getenv("COUNT_IMPORT_FAILURE_AS_STALLED", "false").lower() == "true"
 
 DB_FILE = "stalled_downloads.db"
 
@@ -138,10 +139,6 @@ def detect_stuck_metadata_downloads(base_url, api_key, service_name, api_version
     Detect downloads stuck at 'Downloading Metadata' and apply timeout logic.
     Controlled by COUNT_DOWNLOADING_METADATA_AS_STALLED environment variable.
     """
-    count_metadata_as_stalled = os.getenv("COUNT_DOWNLOADING_METADATA_AS_STALLED", "false").lower() == "true"
-    if not count_metadata_as_stalled:
-        logging.debug(f"Skipping 'Downloading Metadata' detection for {service_name} (disabled).")
-        return
 
     # Query parameters for metadata detection
     params = {
@@ -167,23 +164,63 @@ def detect_stuck_metadata_downloads(base_url, api_key, service_name, api_version
             download_id = str(item["id"])
             movie_id = item.get("movieId") if service_name == "Radarr" else None
             episode_ids = [item["episodeId"]] if service_name == "Sonarr" and "episodeId" in item else None
+            handle_download(download_id, service_name, detected_metadata_downloads, base_url, headers, movie_id, api_version, episode_ids)
 
-            # Check if this download ID is already tracked in the database
-            if download_id in detected_metadata_downloads:
-                first_detected = detected_metadata_downloads[download_id]
-                elapsed_time = (datetime.now(timezone.utc) - first_detected).total_seconds()
+def detect_failed_imports(base_url, api_key, service_name, api_version):
+    """
+    Detect imports stuck at 'Downloaded - Waiting to Import: No files found are eligible for import' and apply timeout logic.
+    Controlled by COUNT_IMPORT_FAILURE_AS_STALLED environment variable.
+    """
 
-                logging.debug(f"Download ID {download_id} first detected: {first_detected}, elapsed: {elapsed_time} seconds.")
-                if elapsed_time > STALLED_TIMEOUT:
-                    logging.info(f"Handling stuck metadata download ID {download_id} in {service_name} (elapsed time: {elapsed_time} seconds).")
-                    perform_action(base_url, headers, download_id, movie_id, service_name, api_version, episode_ids)
-                    remove_stalled_download_from_db(download_id, service_name)
-                else:
-                    logging.info(f"Metadata download ID {download_id} in {service_name} is within timeout period ({elapsed_time} seconds).")
-            else:
-                # Add this metadata download to the database with the current timestamp
-                add_stalled_download_to_db(download_id, datetime.now(timezone.utc), service_name)
-                logging.info(f"Added metadata download ID {download_id} in {service_name} to the database.")
+    # Query parameters for metadata detection
+    params = {
+        "protocol": "torrent",
+        "status": "complete",
+        "includeEpisode": "true" if service_name == "Sonarr" else "false"
+    }
+
+    logging.info(f"Checking for failed imports ('No Files Found') in {service_name}...")
+    headers = {"X-Api-Key": api_key}
+    queue_url = f"{base_url}/api/{api_version}/queue"
+    api_records = query_api_paginated(queue_url, headers, params, page_size=50)
+
+    if api_records:
+        logging.info(f"Found {len(api_records)} downloads in {service_name}: {api_records}")
+    else:
+        logging.info(f"No anomalous downloads detected in {service_name}.")
+    
+    stalled_downloads = get_stalled_downloads_from_db(service_name)
+    for item in api_records:
+        
+        title = str(item.get("title") or "unknown").lower()
+        error_message = (item.get("errorMessage") or "").lower()
+        download_state = (item.get("trackedDownloadState") or "").lower()
+        is_stalled_state = "stalled with no connections" in error_message
+        
+        status_messages = item.get("statusMessages") or []
+        has_no_files_found = any(
+            "no files found are eligible for import" in str(msg).lower()
+            for sm in status_messages
+            for msg in sm.get("messages") or []
+        )
+        
+        logging.debug(
+            f"Download '{title}' | "
+            f"Error: '{error_message}' | "
+            f"State: '{download_state}' | "
+            f"Stalled: {is_stalled_state} | "
+            f"No files found: {has_no_files_found}"
+        )
+
+        is_import_failed_state = download_state == "importpending" and has_no_files_found
+
+        if is_stalled_state or is_import_failed_state:
+            download_stall_reason = "failed import" if is_import_failed_state else "stalled"
+            logging.debug(f"Download '{title}' stalled due to: {download_stall_reason}.")
+            download_id = str(item["id"])
+            movie_id = item.get("movieId") if service_name == "Radarr" else None
+            episode_ids = [item["episodeId"]] if service_name == "Sonarr" and "episodeId" in item else None            
+            handle_download(download_id, service_name, stalled_downloads, base_url, headers, movie_id, api_version, episode_ids)
 
 def query_api_paginated(base_url, headers, params=None, page_size=50):
     """Query an API endpoint with pagination to retrieve all records."""
@@ -295,70 +332,74 @@ def handle_stalled_downloads(base_url, api_key, service_name, api_version):
     # Existing logic for handling stalled downloads
     stalled_downloads = get_stalled_downloads_from_db(service_name)
     for item in queue_records:
-        
-        error_message = (item.get("errorMessage") or "").lower()
-        download_state = (item.get("trackedDownloadState") or "").lower()
-        is_stalled_state = "stalled with no connections" in error_message
-        
-        status_messages = item.get("statusMessages") or []
-        has_no_files_found = any(
-            "no files found are eligible for import" in str(msg).lower()
-            for sm in status_messages
-            for msg in sm.get("messages") or []
-        )
-        
-        is_import_failed_state = download_state == "importpending" and has_no_files_found
-
-        if is_stalled_state or is_import_failed_state:
-
-            title = str(item.get("title") or "unknown").lower()
-            download_stall_reason = "failed import" if is_import_failed_state else "stalled"
-            logging.debug(f"Download '{title}' stalled due to: {download_stall_reason}.")
-
+        if item.get("errorMessage", "").lower() == "the download is stalled with no connections":
             download_id = str(item["id"])
             movie_id = item.get("movieId") if service_name == "Radarr" else None
-            episode_ids = [item["episodeId"]] if service_name == "Sonarr" and "episodeId" in item else None            
+            episode_ids = [item["episodeId"]] if service_name == "Sonarr" and "episodeId" in item else None
+            handle_download(download_id, service_name, stalled_downloads, base_url, headers, movie_id, api_version, episode_ids)
 
-            if download_id in stalled_downloads:
-                first_detected = stalled_downloads[download_id]
-                elapsed_time = (datetime.now(timezone.utc) - first_detected).total_seconds()
+def handle_download(
+    download_id,
+    service_name,
+    api_records,
+    base_url,
+    headers,
+    movie_id,
+    api_version,
+    episode_ids,
+):
+    now = datetime.now(timezone.utc)
+    if download_id in api_records:
+        first_detected = api_records[download_id]
+        elapsed_time = (now - first_detected).total_seconds()
+        logging.debug(f"Download ID {download_id} first detected: {first_detected}, elapsed: {elapsed_time} seconds.")
+        if elapsed_time > STALLED_TIMEOUT:
+            logging.info(
+                f"Handling stuck metadata download ID {download_id} in {service_name} "
+                f"(elapsed time: {elapsed_time} seconds)."
+            )
+            perform_action(base_url, headers, download_id, movie_id, service_name, api_version, episode_ids)
+            remove_stalled_download_from_db(download_id, service_name)
+        else:
+            logging.info(f"Metadata download ID {download_id} in {service_name} is within timeout period ({elapsed_time} seconds).")
+    else:
+        add_stalled_download_to_db(download_id, now, service_name)
+        logging.info(f"Added metadata download ID {download_id} in {service_name} to the database.")
 
-                logging.debug(f"Download ID {download_id} first detected: {first_detected}, elapsed: {elapsed_time} seconds.")
-                if elapsed_time > STALLED_TIMEOUT:
-                    logging.info(f"Handling {download_stall_reason} Download ID {download_id} in {service_name} (elapsed time: {elapsed_time} seconds).")
-                    perform_action(base_url, headers, download_id, movie_id, service_name, api_version, episode_ids)
-                    remove_stalled_download_from_db(download_id, service_name)
-                else:
-                    logging.info(f"Download ID {download_id} in {service_name} is {download_stall_reason} but within timeout period ({elapsed_time} seconds).")
-            else:
-                add_stalled_download_to_db(download_id, datetime.now(timezone.utc), service_name)
-                logging.info(f"Adding {download_stall_reason} download ID {download_id} in {service_name} to the database.")
+def process_service(service_name, urls, api_keys, api_version, stuck_metadata=False, detect_failed=False):
+    if not urls:
+        return
+
+    for count, (url, api_key) in enumerate(zip(urls, api_keys)):
+        instance_name = f"{service_name}{count}"
+        handle_stalled_downloads(url, api_key, instance_name, api_version)
+        if stuck_metadata:
+            detect_stuck_metadata_downloads(url, api_key, instance_name, api_version)
+        else :
+            logging.debug(f"Skipping 'Downloading Metadata' detection for {service_name} (disabled).")
+        if detect_failed:
+            detect_failed_imports(url, api_key, instance_name, api_version)
+        else :
+            logging.debug(f"Skipping 'Import Failure' detection for {service_name} (disabled).")
 
 if __name__ == "__main__":
     try:
         while True:
             initialize_database()
-
-            #itterate through env variables for services
-            if RADARR_URL is not None:
-                for radarrCount in range(len(RADARR_URL)):
-                    handle_stalled_downloads(RADARR_URL[radarrCount], RADARR_API_KEY[radarrCount], "Radarr"+str(radarrCount), "v3")  # Handle regular stalled downloads
-                    detect_stuck_metadata_downloads(RADARR_URL[radarrCount], RADARR_API_KEY[radarrCount], "Radarr"+str(radarrCount), "v3")  # Detect stuck downloads at "Downloading Metadata"
-
-            if SONARR_URL is not None:
-                for sonarrCount in range(len(SONARR_URL)):
-                    handle_stalled_downloads(SONARR_URL[sonarrCount], SONARR_API_KEY[sonarrCount], "Sonarr"+str(sonarrCount), "v3")  # Handle regular stalled downloads
-                    detect_stuck_metadata_downloads(SONARR_URL[sonarrCount], SONARR_API_KEY[sonarrCount], "Sonarr"+str(sonarrCount), "v3")  # Detect stuck downloads at "Downloading Metadata"
             
-            if LIDARR_URL is not None:
-                for lidarrCount in range(len(LIDARR_URL)):
-                    handle_stalled_downloads(LIDARR_URL[lidarrCount], LIDARR_API_KEY[lidarrCount], "lidarr"+str(lidarrCount), "v1")  # Handle regular stalled downloads
-                    detect_stuck_metadata_downloads(LIDARR_URL[lidarrCount], LIDARR_API_KEY[lidarrCount], "Lidarr"+str(lidarrCount), "v1")  # Detect stuck downloads at "Downloading Metadata"
+            count_downloading_metadata_as_stalled = os.getenv("COUNT_DOWNLOADING_METADATA_AS_STALLED", "false").lower() == "true"
+            count_import_failure_as_stalled = os.getenv("COUNT_IMPORT_FAILURE_AS_STALLED", "false").lower() == "true"
 
-            if READARR_URL is not None:
-                for readarrCount in range(len(READARR_URL)):
-                    handle_stalled_downloads(READARR_URL[readarrCount], READARR_API_KEY[readarrCount], "readarr"+str(readarrCount), "v1")  # Handle regular stalled downloads
-                    detect_stuck_metadata_downloads(READARR_URL[readarrCount], READARR_API_KEY[readarrCount], "Readarr"+str(readarrCount), "v1")  # Detect stuck downloads at "Downloading Metadata"
+            # Define service configurations
+            services = [
+                ("Radarr", RADARR_URL, RADARR_API_KEY, "v3"),
+                ("Sonarr", SONARR_URL, SONARR_API_KEY, "v3"),
+                ("Lidarr", LIDARR_URL, LIDARR_API_KEY, "v1"),
+                ("Readarr", READARR_URL, READARR_API_KEY, "v1"),
+            ]
+            # Process each service
+            for service_name, urls, api_keys, api_version in services:
+                process_service(service_name, urls, api_keys, api_version, count_downloading_metadata_as_stalled, count_import_failure_as_stalled)
 
             logging.info(f"Script execution completed. Sleeping for {RUN_INTERVAL} seconds...")
             time.sleep(RUN_INTERVAL)
