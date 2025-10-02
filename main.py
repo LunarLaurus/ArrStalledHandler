@@ -313,6 +313,11 @@ def handle_stalled_downloads(base_url, api_key, service_name, api_version):
             download_id = str(item["id"])
             movie_id = item.get("movieId") if service_name == "Radarr" else None
             episode_ids = [item["episodeId"]] if service_name == "Sonarr" and "episodeId" in item else None
+            
+            if is_import_failed_state:
+                reason_str = "failed import"
+            else:
+                reason_str = "stalled"
 
             if download_id in stalled_downloads:
                 first_detected = stalled_downloads[download_id]
@@ -320,14 +325,14 @@ def handle_stalled_downloads(base_url, api_key, service_name, api_version):
 
                 logging.debug(f"Download ID {download_id} first detected: {first_detected}, elapsed: {elapsed_time} seconds.")
                 if elapsed_time > STALLED_TIMEOUT:
-                    logging.info(f"Handling stalled Download ID {download_id} in {service_name} (elapsed time: {elapsed_time} seconds).")
+                    logging.info(f"Handling {reason_str} Download ID {download_id} in {service_name} (elapsed time: {elapsed_time} seconds).")
                     perform_action(base_url, headers, download_id, movie_id, service_name, api_version, episode_ids)
                     remove_stalled_download_from_db(download_id, service_name)
                 else:
-                    logging.info(f"Download ID {download_id} in {service_name} is stalled but within timeout period ({elapsed_time} seconds).")
+                    logging.info(f"Download ID {download_id} in {service_name} is {reason_str} but within timeout period ({elapsed_time} seconds).")
             else:
                 add_stalled_download_to_db(download_id, datetime.now(timezone.utc), service_name)
-                logging.info(f"Adding stalled download ID {download_id} in {service_name} to the database.")
+                logging.info(f"Adding {reason_str} download ID {download_id} in {service_name} to the database.")
 
 if __name__ == "__main__":
     try:
