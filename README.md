@@ -18,6 +18,7 @@ This project is available on [GitHub](https://github.com/tommyvange/ArrStalledHa
 -   **Automatic Handling of Stalled Downloads**:
     -   Detect stalled downloads based on error messages from Radarr/Sonarr/Lidarr/Readarr queues.
     - Detect download stuck on "Downloading Metadata" in qBittorrent and treat them as stalled.
+    - Detect downloads that complete with "No files found are eligible for import" in clients, treat them as stalled.
     -   Perform configurable actions such as:
         -   Remove the stalled download.
         -   Blocklist the stalled download.
@@ -52,7 +53,8 @@ The script is fully configurable using environment variables specified in a `.en
 | `STALLED_ACTION`                        | Action to perform on stalled downloads: `REMOVE`, `BLOCKLIST`, or `BLOCKLIST_AND_SEARCH`.       | `BLOCKLIST_AND_SEARCH` |
 | `VERBOSE`                               | Enable verbose logging for debugging (`true` or `false`).                                       | `false`                |
 | `RUN_INTERVAL`                          | Time (in seconds) between script executions when running in Docker.                             | `300` (5 minutes)      |
-| `COUNT_DOWNLOADING_METADATA_AS_STALLED` | Weather the script should count downloads with the status of "Downloading Metadata" as stalled. | `false`                |
+| `COUNT_DOWNLOADING_METADATA_AS_STALLED` | Whether the script should count downloads with the status of "Downloading Metadata" as stalled. | `false`                |
+| `COUNT_IMPORT_FAILURE_AS_STALLED`       | Handle "No files found are eligible for import" in clients as stalled.                          | `false`                |
 
 To disable Radarr or Sonarr; leave the URL empty in the environment. If the service does not have a URL, then it is skipped. Multple services are allowed by using comma seperated values.
 
@@ -70,6 +72,7 @@ To disable Radarr or Sonarr; leave the URL empty in the environment. If the serv
     
     -   The script identifies stalled downloads based on the error message: `"The download is stalled with no connections"`.
     -   [Optional] The script treats downloads with the error message `"qBittorrent is downloading metadata"` as stalled.
+    -   [Optional] Downloaded - Waiting to Import with client message: `"No files found are eligible for import"` treated as stalled. 
 3.  **Timeout Check**:
     
     -   Downloads are only handled if they have been stalled longer than the configured `STALLED_TIMEOUT`.
@@ -125,6 +128,7 @@ services:
       VERBOSE: "false"
       RUN_INTERVAL: "300"
       COUNT_DOWNLOADING_METADATA_AS_STALLED: "false"
+      COUNT_IMPORT_FAILURE_AS_STALLED: "false"
 ```
 
 **Docker CLI**
@@ -148,13 +152,14 @@ docker run -d \
   -e VERBOSE=false \
   -e RUN_INTERVAL=300 \
   -e COUNT_DOWNLOADING_METADATA_AS_STALLED=false \
+  -e COUNT_IMPORT_FAILURE_AS_STALLED=false \
   --restart unless-stopped \
   tommythebeast/arrstalledhandler:latest
 ```
 
 *One line:*
 ``` bash
-docker run -d --name=ArrStalledHandler -e RADARR_URL=http://localhost:7878,http://otherhost:7878 -e RADARR_API_KEY=your_radarr_api_key,your_2nd_radarr_api_key -e SONARR_URL=http://localhost:8989,http://otherhost:8989 -e SONARR_API_KEY=your_sonarr_api_key,your_2nd_sonarr_api_key -e LIDARR_URL=http://localhost:8686,http://otherhost:8686  -e LIDARR_API_KEY=your_lidarr_api_key,your_2nd_lidarr_api_key -e READARR_URL=http://localhost:8787,http://otherhost:8787 -e READARR_API_KEY=your_readarr_api_key,our_2nd_readarr_api_key -e STALLED_TIMEOUT=3600 -e STALLED_ACTION=BLOCKLIST_AND_SEARCH -e VERBOSE=false -e RUN_INTERVAL=300 -e COUNT_DOWNLOADING_METADATA_AS_STALLED=false --restart unless-stopped tommythebeast/arrstalledhandler:latest
+docker run -d --name=ArrStalledHandler -e RADARR_URL=http://localhost:7878,http://otherhost:7878 -e RADARR_API_KEY=your_radarr_api_key,your_2nd_radarr_api_key -e SONARR_URL=http://localhost:8989,http://otherhost:8989 -e SONARR_API_KEY=your_sonarr_api_key,your_2nd_sonarr_api_key -e LIDARR_URL=http://localhost:8686,http://otherhost:8686  -e LIDARR_API_KEY=your_lidarr_api_key,your_2nd_lidarr_api_key -e READARR_URL=http://localhost:8787,http://otherhost:8787 -e READARR_API_KEY=your_readarr_api_key,our_2nd_readarr_api_key -e STALLED_TIMEOUT=3600 -e STALLED_ACTION=BLOCKLIST_AND_SEARCH -e VERBOSE=false -e RUN_INTERVAL=300 -e COUNT_DOWNLOADING_METADATA_AS_STALLED=false -e COUNT_IMPORT_FAILURE_AS_STALLED=false --restart unless-stopped tommythebeast/arrstalledhandler:latest
 ```
 
 ### Docker Deployment (Manual)
@@ -184,6 +189,7 @@ docker run -d --name=ArrStalledHandler -e RADARR_URL=http://localhost:7878,http:
     VERBOSE=false
     RUN_INTERVAL=300
     COUNT_DOWNLOADING_METADATA_AS_STALLED=false
+    COUNT_IMPORT_FAILURE_AS_STALLED=false
     ```
 
 3.  **Build the Docker Image**:
@@ -232,6 +238,7 @@ docker run -d --name=ArrStalledHandler -e RADARR_URL=http://localhost:7878,http:
     VERBOSE=false
     RUN_INTERVAL=300
     COUNT_DOWNLOADING_METADATA_AS_STALLED=false
+    COUNT_IMPORT_FAILURE_AS_STALLED=false
     ```
         
 4.  **Run the Script**:
