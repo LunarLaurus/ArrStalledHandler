@@ -310,14 +310,14 @@ def handle_stalled_downloads(base_url, api_key, service_name, api_version):
         is_import_failed_state = download_state == "importpending" and has_no_files_found
 
         if is_stalled_state or is_import_failed_state:
+
+            title = str(item.get("title") or "unknown").lower()
+            download_stall_reason = "failed import" if is_import_failed_state else "stalled"
+            logging.debug(f"Download '{title}' stalled due to: {download_stall_reason}.")
+
             download_id = str(item["id"])
             movie_id = item.get("movieId") if service_name == "Radarr" else None
-            episode_ids = [item["episodeId"]] if service_name == "Sonarr" and "episodeId" in item else None
-            
-            if is_import_failed_state:
-                download_stall_reason = "failed import"
-            else:
-                download_stall_reason = "stalled"
+            episode_ids = [item["episodeId"]] if service_name == "Sonarr" and "episodeId" in item else None            
 
             if download_id in stalled_downloads:
                 first_detected = stalled_downloads[download_id]
