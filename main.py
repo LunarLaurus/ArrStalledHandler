@@ -228,9 +228,6 @@ def query_api_paginated(base_url, headers, params=None, page_size=50):
 
     return all_records
 
-
-    return all_records
-
 def perform_action(base_url, headers, download_id, movie_id, service_name, api_version, episode_ids=None):
     # Define action descriptions for logging
     action_desc = {
@@ -298,7 +295,21 @@ def handle_stalled_downloads(base_url, api_key, service_name, api_version):
     # Existing logic for handling stalled downloads
     stalled_downloads = get_stalled_downloads_from_db(service_name)
     for item in queue_records:
-        if item.get("errorMessage", "").lower() == "the download is stalled with no connections":
+        
+        error_message = (item.get("errorMessage") or "").lower()
+        download_state = (item.get("trackedDownloadState") or "").lower()
+        is_stalled_state = error_message == "the download is stalled with no connections"
+        
+        status_messages = item.get("statusMessages", [])
+        has_no_files_found = any(
+            "no files found are eligible for import" in msg.lower()
+            for sm in status_messages
+            for msg in sm.get("messages", [])
+        )
+
+        is_import_failed_state = download_state == "importpending" and has_no_files_found
+
+        if is_stalled_state or is_import_failed_state:
             download_id = str(item["id"])
             movie_id = item.get("movieId") if service_name == "Radarr" else None
             episode_ids = [item["episodeId"]] if service_name == "Sonarr" and "episodeId" in item else None
