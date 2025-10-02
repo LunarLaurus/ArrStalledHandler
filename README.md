@@ -303,6 +303,13 @@ Huge thanks to everyone who dedicates their valuable time to improving, perfecti
                     <sub><b>supernovatroubling</b></sub>
                 </a>
             </td>
+            <td align="center">
+                <a href="https://github.com/LunarLaurus">
+                    <img src="https://avatars.githubusercontent.com/u/121956871?v=4" width="100;" alt="LunarLaurus"/>
+                    <br />
+                    <sub><b>LunarLaurus</b></sub>
+                </a>
+            </td>
 		</tr>
 	<tbody>
 </table>
