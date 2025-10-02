@@ -92,6 +92,33 @@ logging.basicConfig(
     handlers=[logging.StreamHandler()]
 )
 
+def log_env_vars():
+    """Log the current environment configuration for debugging."""
+    env_vars = {
+        "RADARR_URL": RADARR_URL,
+        "RADARR_API_KEY": RADARR_API_KEY,
+        "SONARR_URL": SONARR_URL,
+        "SONARR_API_KEY": SONARR_API_KEY,
+        "LIDARR_URL": LIDARR_URL,
+        "LIDARR_API_KEY": LIDARR_API_KEY,
+        "READARR_URL": READARR_URL,
+        "READARR_API_KEY": READARR_API_KEY,
+        "DB_FILE": DB_FILE,
+        "VERBOSE": VERBOSE,
+        "RUN_INTERVAL": RUN_INTERVAL,
+        "STALLED_TIMEOUT": STALLED_TIMEOUT,
+        "STALLED_ACTION": STALLED_ACTION,
+        "COUNT_DOWNLOADING_METADATA_AS_STALLED": COUNT_DOWNLOADING_METADATA_AS_STALLED,
+        "DOWNLOADING_METADATA_TIMEOUT": DOWNLOADING_METADATA_TIMEOUT,
+        "COUNT_IMPORT_FAILURE_AS_STALLED": COUNT_IMPORT_FAILURE_AS_STALLED,
+        "IMPORT_FAILURE_TIMEOUT": IMPORT_FAILURE_TIMEOUT
+    }
+
+    logging.debug("Current runtime configuration:")
+    for key, value in env_vars.items():
+        logging.debug(f"  {key}: {value}")
+
+
 def initialize_database():
     """Initialize the SQLite database for tracking stalled downloads."""
     if STALLED_TIMEOUT == 0:
@@ -423,7 +450,9 @@ def process_service(service_name, urls, api_keys, api_version, stuck_metadata=Fa
             logging.debug(f"Skipping 'Import Failure' detection for {instance_name} (disabled).")
 
 if __name__ == "__main__":
-    try:
+    try:        
+        logging.info("Starting ArrStalledHandler")
+        log_env_vars()
         while True:
             initialize_database()
             services = [
